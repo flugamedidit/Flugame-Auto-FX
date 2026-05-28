@@ -1,0 +1,24 @@
+SHOTFX SYSTEM ARCHITECTURE & MANIFEST
+=====================================
+
+CORE MODULES:
+- VFX Rack: High-end visual augmentation via modular chips (RESTYLIZE, BG RECONSTRUCTION, 3D TEXT, etc.). Uses "Design Hero" for visual anchoring.
+- B-Roll: Generates adjacent cinematic coverage, cutaways, and inserts. Supports "Classic" and "Story Mode" (formula-driven).
+- AI MV: Dedicated Music Video motion transfer workflow. Handles World Building (Anti-Fake) and Character Performance sync.
+- Final Command Center: Centralized Prompt Review Gate for batch production.
+
+CORE SYSTEMS & ROLES:
+- Character Lock: Strict identity authority. Ensures subject continuity across all shots.
+- Discovery Hub: Semantic expansion and visual DNA analysis.
+- Prompt Densifier: Expands technical style chips into professional natural language.
+- Design Hero: Generates 2D reference anchors for 3D/VFX video generation.
+
+BEHAVIORAL RULES:
+- Module Preservation: Never alter unrelated systems when patching a specific module.
+- Timing Authority: Peak/Midpoint reference timing is derived from source video timecode.
+- Export Workflow: "Export Now" (Direct) vs "Review Prompt" (Curated).
+- Reference DNA: B-Roll shots inherit lighting/color from World/Scene/Style references.
+
+IDENTITY RIGOR:
+- AI MV Identity Lock overrides stylization to prevent face drifting.
+- Motion Transfer uses Performance Clip strictly for timing/lip-sync authority.

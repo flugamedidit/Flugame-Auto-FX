@@ -1,0 +1,17 @@
+SHOTFX Rack Master Manifest
+
+SHOTFX Rack is a dark cinematic modular AI/VFX production tool for rap and music-video workflows. The interface uses a large left media viewport, bottom timeline/transport controls, right-side modular control rack, and three major tabs: VFX Rack, B-Roll, and AI MV.
+
+Core visual identity: near-black background, charcoal panels, white active tab pills, electric blue accents, rounded cards, uppercase tracked typography, monospace prompt editors, blue semantic chips, and professional VFX cockpit styling.
+
+VFX Rack: modifies uploaded footage without restaging it. It must preserve subject identity, face, wardrobe, camera motion, lighting, framing, lip sync, timing, and background structure. Modules include 3D Text, VFX Module, Particles, Glow, Motion FX, Impact FX, Overlays, BG Reconstruction, and Restylize.
+
+3D Text: produces high-resolution camera-motion-tracked 3D-rendered typography. It has Render Text Content, Text Interaction, Tracked Foreground Override, semantic chips, Prompt Densifier, Review Hero, and Generate Hero. It must not become flat overlay text.
+
+B-Roll: generates adjacent cinematic coverage, not 1:1 VFX edits. It uses Reference DNA and Style Directive to match lighting, tone, color grade, lens feel, camera language, and environment texture. It should avoid random people unless Character Lock is active.
+
+AI MV: builds photoreal or stylized music video scenes. Anti-Fake Mode interprets references as real places and produces realistic rapper editorial scene refs. Regular Style Mode allows style hyperlinks to influence cartoon/3D/clay/LEGO/anime/etc. Motion transfer separates authority roles: Character Lock = identity, Performance Clip = lip sync/motion, World Ref = environment, Scene Ref = composition.
+
+Final Command Center: opens when reviewing prompts. It shows editable final prompt on the left, active source reference and generated reference stack on the right, and includes Animate Effect Logic, Optimize Prompt, Reset, Cancel, and Final Export. Final Export must use the edited prompt. Discovery must not open behind this modal.
+
+Do-not-change rules: do not redesign unrelated systems, do not show prompt text over media, do not let buttons silently fail, do not make VFX restage footage, do not make B-Roll generate people without Character Lock, do not let AI MV invent random rappers, and do not expose API keys in frontend code.
