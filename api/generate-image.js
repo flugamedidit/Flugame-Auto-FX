@@ -1,66 +1,37 @@
+import { executeGeneration } from './providerAdapter.js';
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { prompt, model } = req.body || {};
-  const apiKey = process.env.GOOGLE_API_KEY;
+  const { prompt, model, provider, apiKey, endpoint, authHeader, customModel } = req.body || {};
 
   if (!prompt) {
     return res.status(400).json({ error: 'Missing prompt' });
   }
 
-  if (!apiKey) {
-    return res.status(500).json({ error: 'Missing GOOGLE_API_KEY in environment' });
-  }
+  try {
+    const generated = await executeGeneration({
+      kind: 'image',
+      prompt,
+      model: customModel || model,
+      provider,
+      apiKey,
+      endpoint,
+      authHeader,
+      fallbackApiKey: process.env.GOOGLE_API_KEY,
+      fallbackModel: process.env.GOOGLE_IMAGE_MODEL,
+      fallbackEndpoint: process.env.GOOGLE_IMAGE_API_URL,
+    });
 
-  const modelName = model || process.env.GOOGLE_IMAGE_MODEL || 'gemini-2.5-flash-image-preview';
-  const customEndpoint = process.env.GOOGLE_IMAGE_API_URL;
-  const endpoint = customEndpoint
-    ? customEndpoint.includes('{model}')
-      ? customEndpoint.replace('{model}', encodeURIComponent(modelName))
-      : customEndpoint
-    : `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelName)}:generateContent?key=${apiKey}`;
-
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    }),
-  });
-
-  const payload = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    return res.status(response.status).json({
-      error: payload?.error?.message || 'Image generation provider returned an error',
+    return res.status(200).json({
+      ...generated,
+      name: 'Generated image',
+    });
+  } catch (error) {
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Image generation provider returned an error',
     });
   }
-
-  const inlineParts = payload?.candidates?.[0]?.content?.parts || [];
-  const inlinePart = inlineParts.find((part) => part.inlineData);
-
-  if (inlinePart?.inlineData) {
-    const mimeType = inlinePart.inlineData.mimeType || 'image/png';
-    const url = `data:${mimeType};base64,${inlinePart.inlineData.data}`;
-    return res.status(200).json({ url, mimeType, name: 'Generated image' });
-  }
-
-  const filePart = inlineParts.find((part) => part.fileData);
-  if (filePart?.fileData?.fileUri) {
-    const remoteResponse = await fetch(filePart.fileData.fileUri);
-    if (!remoteResponse.ok) {
-      return res.status(502).json({ error: 'Failed to fetch remote image payload' });
-    }
-    const mimeType = remoteResponse.headers.get('content-type') || 'image/png';
-    const arrayBuffer = await remoteResponse.arrayBuffer();
-    const url = `data:${mimeType};base64,${Buffer.from(arrayBuffer).toString('base64')}`;
-    return res.status(200).json({ url, mimeType, name: 'Generated image' });
-  }
-
-  return res.status(502).json({
-    error: 'Image provider returned no image payload',
-    debug: payload,
-  });
 }

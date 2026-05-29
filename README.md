@@ -31,12 +31,14 @@ The original Google Flow SDK generation calls were replaced with safe local/mock
 
 ### Runtime setup
 
-Create a Vercel environment with:
+The app now supports provider-driven runtime configuration from the Settings modal:
 
-- `GOOGLE_API_KEY`
-- optional `GOOGLE_IMAGE_MODEL`
-- optional `GOOGLE_VIDEO_MODEL`
-- optional `GOOGLE_IMAGE_API_URL` / `GOOGLE_VIDEO_API_URL`
+- provider selection for image and video
+- API key entry for each provider
+- optional endpoint override for custom routing
+- custom image/video model overrides
+
+Google remains the default provider fallback, and custom provider endpoints can be used for OpenAI-compatible, Recraft, Kleene, or other gateway integrations.
 
 The app now posts generation requests to `/api/generate-image` and `/api/generate-video`.
 
