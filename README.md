@@ -27,7 +27,18 @@ npm run build
 
 ## Important production note
 
-The original Google Flow SDK generation calls were replaced with safe local/mock behavior. To connect real models, wire `src/services/promptCompiler.ts` and the App generation handlers to your backend/API adapter. Do not place API keys in frontend code.
+The original Google Flow SDK generation calls were replaced with safe local/mock behavior. Real generation is now routed through serverless endpoints under `api/` so API keys stay off the client.
+
+### Runtime setup
+
+Create a Vercel environment with:
+
+- `GOOGLE_API_KEY`
+- optional `GOOGLE_IMAGE_MODEL`
+- optional `GOOGLE_VIDEO_MODEL`
+- optional `GOOGLE_IMAGE_API_URL` / `GOOGLE_VIDEO_API_URL`
+
+The app now posts generation requests to `/api/generate-image` and `/api/generate-video`.
 
 ## Project structure
 
