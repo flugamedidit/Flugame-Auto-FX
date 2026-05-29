@@ -1,0 +1,39 @@
+{
+  "manifestVersion": 5,
+  "id": "com.shotfx.rack.premiere",
+  "name": "ShotFX Rack",
+  "version": "0.1.0",
+  "host": [
+    {
+      "app": "PPRO",
+      "minVersion": "24.0.0"
+    }
+  ],
+  "requiredPermissions": {
+    "localFileSystem": "request"
+  },
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "shotfxRackPanel",
+      "label": "ShotFX Rack",
+      "minimumSize": {
+        "width": 360,
+        "height": 600
+      },
+      "maximumSize": {
+        "width": 1600,
+        "height": 1200
+      },
+      "preferredDockedSize": {
+        "width": 420,
+        "height": 760
+      },
+      "preferredFloatingSize": {
+        "width": 480,
+        "height": 760
+      }
+    }
+  ],
+  "main": "dist/index.html"
+}

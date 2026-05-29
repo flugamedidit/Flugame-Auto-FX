@@ -1,0 +1,466 @@
+import React, { useState } from 'react';
+import { MusicVideoState, CharacterRef, MusicVideoScene, BRollResult } from '../types';
+import { SectionLabel, GlassPanel, IconButton, NumberCounter } from './UIPrimitives';
+import { MV_STYLE_TONES, MV_OUTPUT_TYPES, IMAGE_MODELS, VIDEO_MODELS } from '../constants';
+import { motion, AnimatePresence } from 'motion/react';
+import { shotfxApi } from '../services/shotfxApi';
+import { premiere } from '../services/premiere';
+
+interface AIMusicVideoProps {
+  state: MusicVideoState;
+  onUpdate: (updates: Partial<MusicVideoState>) => void;
+  imageModel: string;
+  videoModel: string;
+  characterRefs: CharacterRef[];
+  globalContext: string;
+}
+
+export const AIMusicVideo: React.FC<AIMusicVideoProps> = ({ state, onUpdate, imageModel, videoModel, characterRefs, globalContext }) => {
+  const [isGeneratingScenes, setIsGeneratingScenes] = useState(false);
+  const [isGeneratingHero, setIsGeneratingHero] = useState(false);
+  const [isGeneratingPerformance, setIsGeneratingPerformance] = useState(false);
+  const [showEngines, setShowEngines] = useState(false);
+
+  const handleUploadRef = async (key: 'sceneRef' | 'worldRef' | 'moodRef' | 'audioRef' | 'performanceVideoRef') => {
+    try {
+      const filter = key === 'audioRef' ? 'audio' : (key === 'performanceVideoRef' ? 'video' : 'image');
+      const media = await shotfxApi.selectMedia(filter as any);
+      if (media) {
+        onUpdate({ [key]: { mediaId: media.mediaId, base64: media.base64, name: media.name, mimeType: media.mimeType } });
+      }
+    } catch (err) { console.error(`Failed to upload ${key}:`, err); }
+  };
+
+  const handleGenerateScenes = async () => {
+    setIsGeneratingScenes(true);
+    try {
+      const charInfo = characterRefs.map(c => `Subject ${c.subject}: ${c.name}`).join(', ');
+      const userContext = state.context || globalContext || "Modern cinematic music video";
+      
+      const systemPrompt = `
+        You are a World-Class Music Video Director.
+        TASK: Generate 3 intelligently related cinematic performance scene options for the artist.
+        
+        INPUT CONTEXT:
+        - Character: ${charInfo}
+        - Song/Vibe: ${userContext}
+        - Style/Tone: ${state.styleTone}
+        ${state.trendResearch ? `TREND RESEARCH: On. Focus on: ${state.trendNotes || 'Current urban street/trap aesthetics'}.` : ''}
+        
+        SCENE RELATIONSHIP LOGIC:
+        Option 1: Luxury/Status (Expensive, high-budget look).
+        Option 2: Gritty/Dangerous (Street credit, industrial, high contrast).
+        Option 3: Surreal/Editorial (Atmospheric, artistic, magical realism).
+        
+        OUTPUT FORMAT: Return ONLY a JSON array of 3 objects.
+        [{ "id": "1", "title": "...", "location": "...", "visualTone": "...", "lightingStyle": "...", "colorPalette": "...", "cameraFraming": "...", "characterPresentation": "...", "whyItWorks": "...", "bestUse": "..." }]
+      `;
+
+      const { text: response } = await shotfxApi.generateText(userContext, { systemInstruction: systemPrompt });
+      const scenes: MusicVideoScene[] = JSON.parse(response.replace(/```json|```/g, '').trim());
+      onUpdate({ sceneOptions: scenes, selectedSceneIndex: null });
+    } catch (err) {
+      console.error('Scene generation failed:', err);
+    } finally {
+      setIsGeneratingScenes(false);
+    }
+  };
+
+  const handleGenerateHeroFrame = async (scene: MusicVideoScene, index: number) => {
+    setIsGeneratingHero(true);
+    try {
+      const charIds = characterRefs.map(c => c.mediaId);
+      const refIds = [...charIds];
+      if (state.sceneRef) refIds.push(state.sceneRef.mediaId);
+      if (state.worldRef) refIds.push(state.worldRef.mediaId);
+      if (state.moodRef) refIds.push(state.moodRef.mediaId);
+
+      const prompt = `
+        MASTER PERFORMANCE SHOT: ${scene.title} in ${scene.location}.
+        VISUAL TONE: ${scene.visualTone}. LIGHTING: ${scene.lightingStyle}. PALETTE: ${scene.colorPalette}.
+        FRAMING: ${scene.cameraFraming}. Artist Facing Camera directly.
+        CHARACTER LOCK: Strictly maintain facial identity, head shape, and wardrobe style from references.
+        ${scene.characterPresentation}.
+        PERFORMANCE READY: Clear view of mouth and face for lip sync. Cinematic high-budget music video look.
+      `;
+
+      const result = await shotfxApi.generateImage({
+        prompt,
+        referenceImageMediaIds: [...new Set(refIds)],
+        modelDisplayName: state.imageModel,
+        aspectRatio: '16:9'
+      });
+
+      const brollRes: BRollResult = {
+        id: Math.random().toString(36).substr(2, 9),
+        mediaId: result.mediaId,
+        base64: result.base64,
+        mimeType: result.mimeType,
+        type: 'IMAGE',
+        timestamp: Date.now()
+      };
+
+      const newScenes = [...state.sceneOptions];
+      newScenes[index] = { ...newScenes[index], heroFrame: brollRes };
+      onUpdate({ sceneOptions: newScenes, selectedSceneIndex: index });
+    } catch (err) {
+      console.error('Hero frame failed:', err);
+    } finally {
+      setIsGeneratingHero(false);
+    }
+  };
+
+  const handleGeneratePerformance = async () => {
+    if (state.selectedSceneIndex === null && !state.useCustomUploadedAsHero) return;
+    setIsGeneratingPerformance(true);
+    try {
+      let heroFrameId: string | undefined;
+      let promptPrefix = "";
+
+      if (state.useCustomUploadedAsHero && state.sceneRef) {
+        heroFrameId = state.sceneRef.mediaId;
+        promptPrefix = `MASTER PERFORMANCE: Subject performing at the camera. Use the provided scene reference as the exact environment and first frame.`;
+      } else if (state.selectedSceneIndex !== null) {
+        const scene = state.sceneOptions[state.selectedSceneIndex];
+        heroFrameId = scene.heroFrame?.mediaId;
+        promptPrefix = `FULL PERFORMANCE ANIMATION: ${scene.title}. CHARACTER PERFORMANCE: Artist facing camera, rapping/singing with intense energy. ${scene.characterPresentation}.`;
+      }
+
+      const refIds: string[] = characterRefs.map(c => c.mediaId);
+      if (heroFrameId) refIds.push(heroFrameId);
+      
+      const prompt = `
+        ${promptPrefix}
+        ${state.audioRef ? 'LIP SYNC: Use uploaded audio for mouth timing and facial expression energy.' : 'ANIMATION: Natural performance movement.'}
+        ${state.performanceVideoRef && state.useCustomUploadedPerformance ? 'MOTION: Transfer body gestures and energy from reference video.' : ''}
+        STRICT IDENTITY LOCK: Preserve face, hair, and body proportions perfectly.
+        VIBE: ${state.styleTone}. CONTEXT: ${state.context}.
+        CINEMATIC: Professional music video energy. High contrast.
+      `;
+
+      const audioIds = state.audioRef ? [state.audioRef.mediaId] : undefined;
+      const performanceVidId = (state.performanceVideoRef && state.useCustomUploadedPerformance) ? state.performanceVideoRef.mediaId : undefined;
+
+      const result = await shotfxApi.generateVideo({
+        prompt,
+        firstFrameImageMediaId: heroFrameId,
+        audioReferenceMediaIds: audioIds,
+        sourceVideoMediaId: performanceVidId,
+        sourceVideoMode: performanceVidId ? 'edit' : undefined,
+        modelDisplayName: state.videoModel,
+        aspectRatio: '16:9',
+        durationSeconds: 8
+      });
+
+      const brollRes: BRollResult = {
+        id: Math.random().toString(36).substr(2, 9),
+        mediaId: result.mediaId,
+        base64: result.base64,
+        mimeType: result.mimeType,
+        type: 'VIDEO',
+        timestamp: result.timestamp
+      };
+
+      onUpdate({ performanceResults: [brollRes, ...state.performanceResults].slice(0, 10) });
+    } catch (err) {
+      console.error('Performance generation failed:', err);
+    } finally {
+      setIsGeneratingPerformance(false);
+    }
+  };
+
+  const RefSlot = ({ label, value, onUpload, onClear, type = 'image' }: { label: string, value: any, onUpload: () => void, onClear: () => void, type?: 'image' | 'audio' | 'video' }) => (
+    <div className="space-y-1.5 flex-1 min-w-[58px]">
+      <div className="flex justify-between items-center">
+        <label className="text-[7px] text-white/30 uppercase tracking-widest overflow-hidden whitespace-nowrap">{label}</label>
+        {value && <button onClick={onClear} className="text-[7px] text-red-400/60 font-black uppercase">×</button>}
+      </div>
+      {value ? (
+        <div className="relative aspect-square rounded-lg overflow-hidden border border-white/10 group cursor-pointer bg-black" onClick={onUpload}>
+          {type === 'image' ? (
+            <img src={`data:image/jpeg;base64,${value.base64}`} className="w-full h-full object-cover grayscale" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <span className="material-symbols-outlined text-white/40">{type === 'audio' ? 'music_note' : 'movie'}</span>
+            </div>
+          )}
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+            <span className="material-symbols-outlined text-white text-[16px]">swap_horiz</span>
+          </div>
+        </div>
+      ) : (
+        <button onClick={onUpload} className="w-full aspect-square border border-dashed border-white/10 rounded-lg flex flex-col items-center justify-center gap-1 hover:bg-white/5 transition-all text-white/20">
+          <span className="material-symbols-outlined text-[14px]">{type === 'audio' ? 'playlist_add' : (type === 'video' ? 'videocam' : 'add')}</span>
+        </button>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      {/* Engine Options Toggle */}
+      <div className="bg-black/40 rounded-xl border border-white/5 overflow-hidden">
+        <button 
+          onClick={() => setShowEngines(!showEngines)}
+          className="w-full flex items-center justify-between px-3 py-2 text-[8px] font-black uppercase tracking-[3px] text-white/40 hover:text-white/60 transition-all"
+        >
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-[14px]">psychology</span>
+            {state.videoModel} • {state.imageModel}
+          </div>
+          <span className={`material-symbols-outlined text-[16px] transition-transform ${showEngines ? 'rotate-180' : ''}`}>expand_more</span>
+        </button>
+        <AnimatePresence>
+          {showEngines && (
+            <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="px-3 pb-3 space-y-2 overflow-hidden border-t border-white/5">
+               <div className="space-y-1 pt-2">
+                <label className="text-[7px] text-white/20 uppercase tracking-widest pl-1">Image Engine</label>
+                <select value={state.imageModel} onChange={(e) => onUpdate({ imageModel: e.target.value })} className="w-full bg-black/60 border border-white/10 rounded-lg text-[9px] text-white/60 p-2 outline-none font-bold">
+                  {IMAGE_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[7px] text-white/20 uppercase tracking-widest pl-1">Video Engine</label>
+                <select value={state.videoModel} onChange={(e) => onUpdate({ videoModel: e.target.value })} className="w-full bg-black/60 border border-white/10 rounded-lg text-[9px] text-white/60 p-2 outline-none font-bold">
+                  {VIDEO_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* References Section */}
+      <div className="space-y-3">
+        <SectionLabel icon="photo_library">Production Assets</SectionLabel>
+        <div className="grid grid-cols-5 gap-1.5">
+          <RefSlot label="Scene" value={state.sceneRef} onUpload={() => handleUploadRef('sceneRef')} onClear={() => onUpdate({ sceneRef: null })} />
+          <RefSlot label="World" value={state.worldRef} onUpload={() => handleUploadRef('worldRef')} onClear={() => onUpdate({ worldRef: null })} />
+          <RefSlot label="Mood" value={state.moodRef} onUpload={() => handleUploadRef('moodRef')} onClear={() => onUpdate({ moodRef: null })} />
+          <RefSlot label="Perf" value={state.performanceVideoRef} type="video" onUpload={() => handleUploadRef('performanceVideoRef')} onClear={() => onUpdate({ performanceVideoRef: null })} />
+          <RefSlot label="Audio" value={state.audioRef} type="audio" onUpload={() => handleUploadRef('audioRef')} onClear={() => onUpdate({ audioRef: null })} />
+        </div>
+        
+        {/* Quick Toggles for Uploaded Assets */}
+        <div className="flex flex-col gap-2 pt-1">
+          {state.sceneRef && (
+            <button 
+              onClick={() => onUpdate({ useCustomUploadedAsHero: !state.useCustomUploadedAsHero, selectedSceneIndex: state.useCustomUploadedAsHero ? state.selectedSceneIndex : null })}
+              className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all ${state.useCustomUploadedAsHero ? 'bg-purple-500 text-white' : 'bg-white/5 text-white/40 border border-white/5'}`}
+            >
+               <span>Use Uploaded Scene as Hero</span>
+               <span className="material-symbols-outlined text-[14px]">{state.useCustomUploadedAsHero ? 'check_circle' : 'circle'}</span>
+            </button>
+          )}
+          {state.performanceVideoRef && (
+            <button 
+              onClick={() => onUpdate({ useCustomUploadedPerformance: !state.useCustomUploadedPerformance })}
+              className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all ${state.useCustomUploadedPerformance ? 'bg-blue-500 text-white' : 'bg-white/5 text-white/40 border border-white/5'}`}
+            >
+               <span>Lock Motion to Uploaded Performance</span>
+               <span className="material-symbols-outlined text-[14px]">{state.useCustomUploadedPerformance ? 'check_circle' : 'circle'}</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Logic / Trend Section */}
+      <div className="space-y-4 bg-black/20 p-3 rounded-xl border border-white/5 shadow-inner">
+        <div className="flex items-center justify-between">
+           <SectionLabel icon="travel_explore">Director's Logic</SectionLabel>
+           <div className="flex items-center gap-2 pr-1">
+             <span className="text-[8px] text-white/20 uppercase tracking-widest">Trend Research</span>
+             <button 
+                onClick={() => onUpdate({ trendResearch: !state.trendResearch })}
+                className={`w-6 h-3 rounded-full transition-all relative ${state.trendResearch ? 'bg-purple-500' : 'bg-white/10'}`}
+             >
+                <div className={`absolute top-0.5 w-2 h-2 rounded-full bg-white transition-all ${state.trendResearch ? 'left-[14px]' : 'left-0.5'}`} />
+             </button>
+           </div>
+        </div>
+        
+        <div className="space-y-2">
+          <label className="text-[9px] text-white/30 uppercase tracking-widest">Style / Tone</label>
+          <select 
+            value={state.styleTone}
+            onChange={(e) => onUpdate({ styleTone: e.target.value })}
+            className="w-full bg-black border border-white/10 rounded-lg text-[10px] text-white/80 p-2.5 outline-none font-bold"
+          >
+            {MV_STYLE_TONES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+
+        {state.trendResearch && (
+          <div className="space-y-2">
+            <label className="text-[9px] text-white/30 uppercase tracking-widest">Trend Notes / Culture Info</label>
+            <textarea 
+              value={state.trendNotes}
+              onChange={(e) => onUpdate({ trendNotes: e.target.value })}
+              placeholder="Paste current fashion, car, or aesthetic trends here..."
+              className="w-full h-16 bg-black border border-white/10 rounded-xl px-3 py-2 text-[10px] font-medium text-white placeholder-white/20 focus:border-white/20 focus:outline-none resize-none transition-all"
+            />
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <label className="text-[9px] text-white/30 uppercase tracking-widest">Song Context / Lyric Energy</label>
+          <textarea 
+            value={state.context}
+            onChange={(e) => onUpdate({ context: e.target.value })}
+            placeholder="Describe the performance vibe..."
+            className="w-full h-16 bg-black border border-white/10 rounded-xl px-3 py-2 text-[10px] font-medium text-white placeholder-white/20 focus:border-white/20 focus:outline-none resize-none transition-all"
+          />
+        </div>
+
+        <button 
+          onClick={handleGenerateScenes}
+          disabled={isGeneratingScenes || characterRefs.length === 0}
+          className="w-full h-11 bg-white text-black rounded-xl flex items-center justify-center gap-2 hover:bg-gray-200 transition-all disabled:opacity-20 font-black uppercase tracking-widest text-[10px]"
+        >
+          {isGeneratingScenes ? <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span> : <span className="material-symbols-outlined text-[18px]">theater_comedy</span>}
+          {isGeneratingScenes ? 'Strategizing...' : 'Generate 3 Scene Options'}
+        </button>
+      </div>
+
+      {/* Scene Options List */}
+      <AnimatePresence>
+        {state.sceneOptions.length > 0 && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
+            <SectionLabel icon="list_alt">Environments</SectionLabel>
+            <div className="space-y-3">
+              {state.sceneOptions.map((scene, i) => (
+                <div 
+                  key={scene.id} 
+                  className={`bg-black/40 border p-3 rounded-2xl transition-all ${state.selectedSceneIndex === i ? 'border-purple-500/50 bg-purple-500/5 shadow-lg shadow-purple-500/10' : 'border-white/5'}`}
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <div className="text-[11px] font-black text-white uppercase tracking-wider">{scene.title}</div>
+                      <div className="text-[9px] text-white/40">{scene.location}</div>
+                    </div>
+                    <div className="px-2 py-0.5 bg-white/5 border border-white/10 rounded text-[7px] font-bold text-white/40 uppercase tracking-tighter">Option {i + 1}</div>
+                  </div>
+
+                  {scene.heroFrame ? (
+                    <div className="aspect-video relative rounded-xl overflow-hidden border border-white/10 mb-3 group">
+                      <img src={`data:image/jpeg;base64,${scene.heroFrame.base64}`} className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                        <button onClick={() => handleGenerateHeroFrame(scene, i)} className="p-2 bg-white/20 rounded-full hover:bg-white/40"><span className="material-symbols-outlined text-white text-[16px]">refresh</span></button>
+                      </div>
+                      <div className="absolute bottom-2 left-2 right-2 flex justify-between items-center">
+                        <span className="text-[8px] bg-black/60 px-1.5 py-0.5 rounded text-white font-bold uppercase tracking-widest">Locked Frame</span>
+                        {state.selectedSceneIndex !== i && (
+                          <button onClick={() => onUpdate({ selectedSceneIndex: i, useCustomUploadedAsHero: false })} className="px-3 py-1 bg-white text-black text-[9px] font-black uppercase rounded-lg">Select Scene</button>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 mb-3">
+                      <div className="grid grid-cols-2 gap-2 text-[9px] text-white/60 leading-tight">
+                        <div className="bg-black/40 p-2 rounded-lg border border-white/5">
+                          <div className="text-white/20 uppercase text-[7px] mb-0.5">Lighting</div>
+                          {scene.lightingStyle}
+                        </div>
+                        <div className="bg-black/40 p-2 rounded-lg border border-white/5">
+                          <div className="text-white/20 uppercase text-[7px] mb-0.5">Palette</div>
+                          {scene.colorPalette}
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => handleGenerateHeroFrame(scene, i)}
+                        disabled={isGeneratingHero}
+                        className="w-full py-2 bg-white/5 border border-white/10 rounded-xl text-[9px] font-black uppercase tracking-widest text-white/60 hover:bg-white/10"
+                      >
+                        {isGeneratingHero ? 'Designing Hero Frame...' : 'Design Scene Hero'}
+                      </button>
+                    </div>
+                  )}
+                  
+                  <div className="text-[9px] text-white/40 italic leading-snug">"{scene.whyItWorks}"</div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Final Generation Section */}
+      {(state.selectedSceneIndex !== null || (state.useCustomUploadedAsHero && state.sceneRef)) && (
+        <div className="space-y-4 pt-6 border-t border-white/10">
+          <SectionLabel icon="interpreter_mode">Master Generation</SectionLabel>
+          {state.useCustomUploadedAsHero && (
+            <div className="px-3 py-2 bg-purple-500/10 border border-purple-500/20 rounded-xl flex items-center gap-3 mb-2">
+               <div className="w-10 h-10 rounded-lg overflow-hidden border border-white/10 flex-shrink-0">
+                  <img src={`data:image/jpeg;base64,${state.sceneRef?.base64}`} className="w-full h-full object-cover" />
+               </div>
+               <div>
+                 <div className="text-[9px] font-black text-purple-400 uppercase tracking-widest">Custom Scene Active</div>
+                 <div className="text-[8px] text-white/40 uppercase">Bypassing generated options</div>
+               </div>
+            </div>
+          )}
+          <div className="space-y-3 bg-black/20 p-3 rounded-xl border border-white/5">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <label className="text-[8px] text-white/20 uppercase tracking-widest pl-1">Output Type</label>
+                <select 
+                  value={state.outputType}
+                  onChange={(e) => onUpdate({ outputType: e.target.value as any })}
+                  className="w-full h-8 bg-black border border-white/10 rounded-lg text-[9px] text-white/60 px-2 outline-none font-bold"
+                >
+                  {MV_OUTPUT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[8px] text-white/20 uppercase tracking-widest pl-1">Video Count</label>
+                <NumberCounter 
+                  value={state.videoCount}
+                  onChange={(v) => onUpdate({ videoCount: v })}
+                  min={1}
+                  max={10}
+                  className="w-full"
+                />
+              </div>
+            </div>
+
+            <button 
+              onClick={handleGeneratePerformance}
+              disabled={isGeneratingPerformance}
+              className="w-full h-12 bg-purple-600 text-white rounded-xl flex items-center justify-center gap-3 hover:bg-purple-500 transition-all disabled:opacity-30 shadow-lg shadow-purple-600/20"
+            >
+              {isGeneratingPerformance ? (
+                <span className="material-symbols-outlined animate-spin text-[20px]">progress_activity</span>
+              ) : (
+                <span className="material-symbols-outlined text-[20px]">movie_edit</span>
+              )}
+              <span className="text-[10px] font-black uppercase tracking-[3px]">
+                {isGeneratingPerformance ? 'Generating AI Performance...' : 'Generate Performance'}
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Results History */}
+      {state.performanceResults.length > 0 && (
+        <div className="space-y-3 pt-6 border-t border-white/10">
+          <SectionLabel icon="history">Performance Sequence</SectionLabel>
+          <div className="grid grid-cols-2 gap-2">
+            {state.performanceResults.map((res) => (
+              <div key={res.id} className="relative aspect-video rounded-xl overflow-hidden border border-white/10 bg-black group shadow-xl">
+                <video src={`data:${res.mimeType};base64,${res.base64}`} autoPlay loop muted className="w-full h-full object-cover" />
+                <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-black/60 backdrop-blur-md border border-white/10 rounded text-[7px] font-black text-white/80 uppercase tracking-tighter">
+                  CLIP
+                </div>
+                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-opacity">
+                  <button onClick={async () => { await shotfxApi.saveAsset({ base64: res.base64, mediaId: res.mediaId, mimeType: res.mimeType, name: `MV Performance ${res.id}` }); await premiere.importAsset({ mediaId: res.mediaId, mimeType: res.mimeType, name: `MV Performance ${res.id}` }); }} className="p-1.5 bg-white/20 rounded-lg hover:bg-white/40"><span className="material-symbols-outlined text-white text-[16px]">save</span></button>
+                  <button onClick={() => onUpdate({ performanceResults: state.performanceResults.filter(r => r.id !== res.id) })} className="p-1.5 bg-red-500/20 rounded-lg hover:bg-red-500/40"><span className="material-symbols-outlined text-white text-[16px]">delete</span></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
